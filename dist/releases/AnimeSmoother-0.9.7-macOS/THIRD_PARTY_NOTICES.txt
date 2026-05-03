@@ -1,0 +1,21 @@
+Anime Smoother OFX includes code adapted from the following open source project.
+
+Anime Smoother OFX には、以下のオープンソースプロジェクトを移植・改変したコードが含まれています。
+
+Project:
+  loilo-inc/smooth
+
+Repository:
+  https://github.com/loilo-inc/smooth
+
+License:
+  Apache License 2.0
+
+The original smooth project is an After Effects smoothing plugin released by LoiLo Inc.
+Anime Smoother OFX ports and adapts its pattern smoothing routines for an OpenFX plugin.
+
+元の smooth プロジェクトは、LoiLo Inc. による After Effects 用スムージングプラグインです。
+Anime Smoother OFX は、そのパターンスムージング処理を OpenFX プラグイン向けに移植・調整しています。
+
+The Apache License 2.0 text is included in LICENSE.txt.
+

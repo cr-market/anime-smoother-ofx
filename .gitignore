@@ -1,0 +1,27 @@
+# Build outputs
+build/
+build-*/
+
+# Release packaging workspace
+dist/release-work*/
+dist/release-work-anime-smoother/
+
+# Generated release archives are attached to GitHub Releases, not committed.
+dist/releases/*.zip
+
+# OS/editor noise
+.DS_Store
+._*
+.vscode/
+.idea/
+
+# Generated QA images
+qa/*.png
+
+# Embedded source snapshot should not carry its original Git metadata.
+external/smooth/.git/
+external/smooth/**/*.user
+
+# CMake local files
+CMakeUserPresets.json
+compile_commands.json
