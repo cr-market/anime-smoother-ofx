@@ -4,7 +4,7 @@
 
 It is free to use and released under the Apache License 2.0.
 
-Version 0.9.x switches the active prototype to a port of the Apache-2.0 `loilo-inc/smooth` pattern algorithm. The previous MLAA-style, region-based, SSAA, contour, and simplified pattern test cores remain in the source tree for comparison, but the OFX plugin now runs the original up/down/8-connected/lack pattern routines through an OFX pixel wrapper.
+Version 0.9.x switches the active renderer to a port of the Apache-2.0 `loilo-inc/smooth` pattern algorithm. The previous MLAA-style, region-based, SSAA, contour, and simplified pattern test cores remain in the source tree for comparison, but the OFX plugin now runs the original up/down/8-connected/lack pattern routines through an OFX pixel wrapper.
 
 The current prototype is designed not to grow silhouettes outward. Fully transparent pixels are left transparent, and alpha smoothing is applied by reducing coverage on the existing inside edge rather than painting new pixels outside the source shape.
 
@@ -12,10 +12,26 @@ The current prototype is designed not to grow silhouettes outward. Fully transpa
 
 Prebuilt macOS and Windows packages are distributed from GitHub Releases.
 
-- `AnimeSmoother-0.9.7-macOS.zip`
-- `AnimeSmoother-0.9.7-Windows.zip`
+- `AnimeSmoother-0.9.10-macOS.zip`
+- `AnimeSmoother-0.9.10-Windows.zip`
 
 Each ZIP contains the OFX bundle, install notes, license text, and third-party notices.
+
+## Speed Update
+
+Version 0.9.10 is a C++ speed update without changing the active algorithm or expected visual output:
+
+- splits the frame into horizontal bands
+- processes each band on a worker thread with a safety overlap
+- merges only the worker's central rows back into the final output
+- skips the float-pixel intermediate buffer in the OFX wrapper
+- builds Release by default for local CMake builds
+- enables `-O3` and link-time optimization when supported
+- adds a packed 4-byte equality check before per-channel range comparisons
+
+In the 4K 600-frame test used during development, the macOS build improved from about 2:43 in v0.9.9 to about 1:07 in v0.9.10.
+
+An earlier difference-map prototype was tested but removed from the active path because it added more memory overhead than it saved on typical frames.
 
 ## Credits
 

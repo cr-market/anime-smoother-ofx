@@ -4,11 +4,18 @@ if(APPLE AND NOT DEFINED CMAKE_OSX_ARCHITECTURES)
     set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "Build universal macOS binaries")
 endif()
 
-project(AnimeSmootherOFX VERSION 0.9.7 LANGUAGES CXX)
+if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
+project(AnimeSmootherOFX VERSION 0.9.10 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ANIME_SMOOTHER_IPO_SUPPORTED OUTPUT ANIME_SMOOTHER_IPO_ERROR)
 
 option(ANIME_LINE_BUILD_STANDALONE_TEST "Build the standalone core test" ON)
 
@@ -47,6 +54,10 @@ if(OFX_SUPPORT_ROOT)
     )
 
     target_compile_features(AnimeSmoother.ofx PRIVATE cxx_std_17)
+    target_compile_options(AnimeSmoother.ofx PRIVATE
+        $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-O3>
+        $<$<CXX_COMPILER_ID:MSVC>:/O2>
+    )
     target_include_directories(AnimeSmoother.ofx PRIVATE
         "${OFX_SUPPORT_ROOT}/include"
         "${OFX_SUPPORT_ROOT}/Support/include"
@@ -56,6 +67,9 @@ if(OFX_SUPPORT_ROOT)
         external/smooth
     )
     target_link_libraries(AnimeSmoother.ofx PRIVATE OpenFXSupport)
+    if(ANIME_SMOOTHER_IPO_SUPPORTED)
+        set_property(TARGET AnimeSmoother.ofx PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+    endif()
 
     if(APPLE)
         set_target_properties(AnimeSmoother.ofx PROPERTIES
@@ -97,4 +111,11 @@ if(ANIME_LINE_BUILD_STANDALONE_TEST)
     add_executable(mlaa_core_test tests/mlaa_core_test.cpp ${LOILO_SMOOTH_SOURCES})
     target_include_directories(mlaa_core_test PRIVATE src src/ae_compat external/smooth)
     target_compile_features(mlaa_core_test PRIVATE cxx_std_17)
+    target_compile_options(mlaa_core_test PRIVATE
+        $<$<CXX_COMPILER_ID:AppleClang,Clang,GNU>:-O3>
+        $<$<CXX_COMPILER_ID:MSVC>:/O2>
+    )
+    if(ANIME_SMOOTHER_IPO_SUPPORTED)
+        set_property(TARGET mlaa_core_test PROPERTY INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+    endif()
 endif()

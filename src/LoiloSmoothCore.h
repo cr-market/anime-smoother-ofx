@@ -12,6 +12,8 @@
 #include "Lack.h"
 
 #include <cstring>
+#include <cstdint>
+#include <thread>
 
 namespace loilosmooth {
 
@@ -45,9 +47,45 @@ inline Pixel fromAePixel(const PF_Pixel8& p)
     };
 }
 
+inline PF_Pixel8 unpremultiplyAe(PF_Pixel8 p)
+{
+    if (p.alpha == 0) {
+        return p;
+    }
+    const unsigned int alpha = p.alpha;
+    p.red = static_cast<uint8_t>(std::min(255u, (static_cast<unsigned int>(p.red) * 255u + alpha / 2u) / alpha));
+    p.green = static_cast<uint8_t>(std::min(255u, (static_cast<unsigned int>(p.green) * 255u + alpha / 2u) / alpha));
+    p.blue = static_cast<uint8_t>(std::min(255u, (static_cast<unsigned int>(p.blue) * 255u + alpha / 2u) / alpha));
+    return p;
+}
+
+inline PF_Pixel8 premultiplyAe(PF_Pixel8 p)
+{
+    const unsigned int alpha = p.alpha;
+    p.red = static_cast<uint8_t>((static_cast<unsigned int>(p.red) * alpha + 127u) / 255u);
+    p.green = static_cast<uint8_t>((static_cast<unsigned int>(p.green) * alpha + 127u) / 255u);
+    p.blue = static_cast<uint8_t>((static_cast<unsigned int>(p.blue) * alpha + 127u) / 255u);
+    return p;
+}
+
 inline bool exactDifferent(const PF_Pixel8& a, const PF_Pixel8& b)
 {
-    return a.red != b.red || a.green != b.green || a.blue != b.blue || a.alpha != b.alpha;
+    static_assert(sizeof(PF_Pixel8) == sizeof(uint32_t), "PF_Pixel8 must stay 4 bytes");
+    uint32_t packedA = 0;
+    uint32_t packedB = 0;
+    std::memcpy(&packedA, &a, sizeof(packedA));
+    std::memcpy(&packedB, &b, sizeof(packedB));
+    return packedA != packedB;
+}
+
+inline bool rangeDifferent(const PF_Pixel8& a, const PF_Pixel8& b, unsigned int range)
+{
+    const unsigned int delta =
+        static_cast<unsigned int>(std::abs(static_cast<int>(a.red) - static_cast<int>(b.red))) +
+        static_cast<unsigned int>(std::abs(static_cast<int>(a.green) - static_cast<int>(b.green))) +
+        static_cast<unsigned int>(std::abs(static_cast<int>(a.blue) - static_cast<int>(b.blue))) +
+        static_cast<unsigned int>(std::abs(static_cast<int>(a.alpha) - static_cast<int>(b.alpha)));
+    return delta > range;
 }
 
 inline bool isWhiteOpaque(const PF_Pixel8& p)
@@ -88,6 +126,89 @@ inline void computeExtent(const std::vector<PF_Pixel8>& pixels, int width, int h
     rect.left = std::max(1, left);
     rect.right = std::min(width - 1, right + 1);
     rect.bottom = std::min(height - 1, bottom + 1);
+}
+
+struct DifferenceMaps {
+    std::vector<uint8_t> right;
+    std::vector<uint8_t> up;
+    std::vector<uint8_t> down;
+    std::vector<uint8_t> left;
+    std::vector<uint8_t> activeRows;
+    PF_Rect rect {};
+    bool hasDifference = false;
+};
+
+inline void markActiveRow(std::vector<uint8_t>& rows, int height, int y)
+{
+    if (y >= 0 && y < height) {
+        rows[static_cast<std::size_t>(y)] = 1;
+    }
+}
+
+inline void markActiveNeighborhood(std::vector<uint8_t>& rows, int height, int y, int radius)
+{
+    for (int yy = y - radius; yy <= y + radius; ++yy) {
+        markActiveRow(rows, height, yy);
+    }
+}
+
+inline DifferenceMaps buildDifferenceMaps(const std::vector<PF_Pixel8>& pixels,
+    int width,
+    int height,
+    unsigned int range)
+{
+    DifferenceMaps maps;
+    const std::size_t pixelCount = static_cast<std::size_t>(width) * height;
+    maps.right.assign(pixelCount, 0);
+    maps.up.assign(pixelCount, 0);
+    maps.down.assign(pixelCount, 0);
+    maps.left.assign(pixelCount, 0);
+    maps.activeRows.assign(static_cast<std::size_t>(height), 0);
+
+    int top = height;
+    int left = width;
+    int right = 0;
+    int bottom = 0;
+
+    auto markPixel = [&](int x, int y) {
+        maps.hasDifference = true;
+        left = std::min(left, x);
+        right = std::max(right, x);
+        top = std::min(top, y);
+        bottom = std::max(bottom, y);
+        markActiveNeighborhood(maps.activeRows, height, y, 2);
+    };
+
+    for (int y = 1; y < height - 1; ++y) {
+        for (int x = 1; x < width - 1; ++x) {
+            const std::size_t idx = static_cast<std::size_t>(y) * width + x;
+            const PF_Pixel8& center = pixels[idx];
+
+            if (rangeDifferent(center, pixels[idx + 1], range)) {
+                maps.right[idx] = 1;
+                maps.left[idx + 1] = 1;
+                markPixel(x, y);
+                markPixel(x + 1, y);
+            }
+            if (rangeDifferent(center, pixels[idx + width], range)) {
+                maps.down[idx] = 1;
+                maps.up[idx + width] = 1;
+                markPixel(x, y);
+                markPixel(x, y + 1);
+            }
+        }
+    }
+
+    if (!maps.hasDifference) {
+        return maps;
+    }
+
+    const int margin = 2;
+    maps.rect.top = std::max(1, top - margin);
+    maps.rect.left = std::max(1, left - margin);
+    maps.rect.right = std::min(width - 1, right + margin + 1);
+    maps.rect.bottom = std::min(height - 1, bottom + margin + 1);
+    return maps;
 }
 
 inline unsigned int smoothRange(const Settings& settings)
@@ -131,11 +252,13 @@ inline void applyDebug(Pixel& out, const Pixel& before, const Pixel& after, Debu
     }
 }
 
-inline void runLoilo8(std::vector<PF_Pixel8>& inputPixels,
+inline void runLoilo8Band(std::vector<PF_Pixel8>& inputPixels,
     std::vector<PF_Pixel8>& outputPixels,
     int width,
     int height,
-    const Settings& settings)
+    const Settings& settings,
+    int bandTop,
+    int bandBottom)
 {
     using PixelType = PF_Pixel8;
 
@@ -156,18 +279,28 @@ inline void runLoilo8(std::vector<PF_Pixel8>& inputPixels,
         return;
     }
 
+    const unsigned int range = smoothRange(settings);
+    if (bandBottom < 0) {
+        bandBottom = height;
+    }
+    const int loopTop = std::max(extent.top, std::max(1, bandTop));
+    const int loopBottom = std::min(extent.bottom, std::min(height - 1, bandBottom));
+    if (loopBottom <= loopTop) {
+        return;
+    }
+
     BlendingInfo<PF_Pixel8> blend_info;
     blend_info.input = &input;
     blend_info.output = &output;
     blend_info.in_ptr = inputPixels.data();
     blend_info.out_ptr = outputPixels.data();
-    blend_info.range = smoothRange(settings);
+    blend_info.range = range;
     blend_info.LineWeight = lineWeight(settings);
 
     const int in_width = width;
     bool lack_flg = false;
 
-    for (int j = extent.top; j < extent.bottom; ++j) {
+    for (int j = loopTop; j < loopBottom; ++j) {
         lack_flg = false;
         long in_target = static_cast<long>(j) * in_width + extent.left;
         long out_target = in_target;
@@ -359,6 +492,71 @@ inline void runLoilo8(std::vector<PF_Pixel8>& inputPixels,
     }
 }
 
+inline int chooseThreadCount(int width, int height)
+{
+    const unsigned int hardware = std::thread::hardware_concurrency();
+    const int suggested = hardware == 0 ? 4 : static_cast<int>(hardware);
+    const int byHeight = std::max(1, height / 192);
+    const int byPixels = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) >= 512u * 512u ? suggested : 1;
+    return std::max(1, std::min({8, byHeight, byPixels}));
+}
+
+inline void copyRows(const std::vector<PF_Pixel8>& src,
+    std::vector<PF_Pixel8>& dst,
+    int width,
+    int y0,
+    int y1)
+{
+    if (y1 <= y0) {
+        return;
+    }
+    const std::size_t start = static_cast<std::size_t>(y0) * width;
+    const std::size_t count = static_cast<std::size_t>(y1 - y0) * width;
+    std::copy(src.begin() + static_cast<std::ptrdiff_t>(start),
+        src.begin() + static_cast<std::ptrdiff_t>(start + count),
+        dst.begin() + static_cast<std::ptrdiff_t>(start));
+}
+
+inline void runLoilo8(std::vector<PF_Pixel8>& inputPixels,
+    std::vector<PF_Pixel8>& outputPixels,
+    int width,
+    int height,
+    const Settings& settings)
+{
+    const int threadCount = chooseThreadCount(width, height);
+    if (threadCount <= 1) {
+        runLoilo8Band(inputPixels, outputPixels, width, height, settings, 0, height);
+        return;
+    }
+
+    outputPixels = inputPixels;
+    const int overlap = 128;
+    const int bandHeight = (height + threadCount - 1) / threadCount;
+    std::vector<std::vector<PF_Pixel8>> bandOutputs(static_cast<std::size_t>(threadCount));
+    std::vector<std::thread> workers;
+    workers.reserve(static_cast<std::size_t>(threadCount));
+
+    for (int threadIndex = 0; threadIndex < threadCount; ++threadIndex) {
+        const int centralTop = threadIndex * bandHeight;
+        const int centralBottom = std::min(height, centralTop + bandHeight);
+        if (centralTop >= centralBottom) {
+            continue;
+        }
+
+        workers.emplace_back([&, threadIndex, centralTop, centralBottom]() {
+            std::vector<PF_Pixel8>& localOutput = bandOutputs[static_cast<std::size_t>(threadIndex)];
+            const int scanTop = std::max(0, centralTop - overlap);
+            const int scanBottom = std::min(height, centralBottom + overlap);
+            runLoilo8Band(inputPixels, localOutput, width, height, settings, scanTop, scanBottom);
+            copyRows(localOutput, outputPixels, width, centralTop, centralBottom);
+        });
+    }
+
+    for (std::thread& worker : workers) {
+        worker.join();
+    }
+}
+
 inline void process(const Pixel* src, Pixel* dst, int width, int height, const Settings& settings)
 {
     if (!settings.enabled || settings.blendStrength <= 0.0f || width <= 0 || height <= 0) {
@@ -399,6 +597,39 @@ inline void process(const Pixel* src, Pixel* dst, int width, int height, const S
 
         if (settings.processPremultiplied) {
             out = mlaa::premultiply(out);
+        }
+        dst[i] = out;
+    }
+}
+
+inline void process8(const PF_Pixel8* src, PF_Pixel8* dst, int width, int height, const Settings& settings)
+{
+    if (!settings.enabled || settings.blendStrength <= 0.0f || width <= 0 || height <= 0) {
+        std::copy(src, src + static_cast<std::size_t>(width) * height, dst);
+        return;
+    }
+
+    const std::size_t pixelCount = static_cast<std::size_t>(width) * height;
+    std::vector<PF_Pixel8> inputPixels(src, src + pixelCount);
+    if (settings.processPremultiplied) {
+        for (PF_Pixel8& p : inputPixels) {
+            p = unpremultiplyAe(p);
+        }
+    }
+
+    std::vector<PF_Pixel8> outputPixels(pixelCount);
+    const int passes = std::max(1, std::min(2, settings.smoothingPasses));
+    runLoilo8(inputPixels, outputPixels, width, height, settings);
+    for (int pass = 1; pass < passes; ++pass) {
+        inputPixels = outputPixels;
+        runLoilo8(inputPixels, outputPixels, width, height, settings);
+    }
+
+    const uint8_t alphaCutoff = static_cast<uint8_t>(std::max(0.0f, std::min(255.0f, alphaThreshold(settings) * 255.0f + 0.5f)));
+    for (std::size_t i = 0; i < pixelCount; ++i) {
+        PF_Pixel8 out = inputPixels[i].alpha <= alphaCutoff ? inputPixels[i] : outputPixels[i];
+        if (settings.processPremultiplied) {
+            out = premultiplyAe(out);
         }
         dst[i] = out;
     }

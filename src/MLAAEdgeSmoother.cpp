@@ -12,7 +12,7 @@ namespace {
 
 constexpr const char* kPluginIdentifier = "com.example.AnimeSmoother";
 constexpr int kPluginVersionMajor = 0;
-constexpr int kPluginVersionMinor = 42;
+constexpr int kPluginVersionMinor = 45;
 
 constexpr const char* kParamEnabled = "enabled";
 constexpr const char* kParamBlendStrength = "blendStrength";
@@ -87,6 +87,69 @@ mlaa::Pixel readPixel(const OFX::Image& image, int x, int y)
             fromStorage<T>(ptr[2]),
             fromStorage<T>(ptr[3]),
         };
+    }
+}
+
+template <class T>
+uint8_t toU8FromStorage(T value)
+{
+    return loilosmooth::toU8(fromStorage<T>(value));
+}
+
+template <class T>
+T fromU8ToStorage(uint8_t value)
+{
+    return toStorage<T>(static_cast<float>(value) / 255.0f);
+}
+
+template <class T, int Components>
+PF_Pixel8 readAePixel(const OFX::Image& image, int x, int y)
+{
+    const T* ptr = static_cast<const T*>(image.getPixelAddress(x, y));
+    if (!ptr) {
+        return {};
+    }
+
+    PF_Pixel8 out {};
+    if constexpr (Components == 1) {
+        const uint8_t alpha = toU8FromStorage<T>(ptr[0]);
+        out.alpha = alpha;
+        out.red = alpha;
+        out.green = alpha;
+        out.blue = alpha;
+    } else if constexpr (Components == 3) {
+        out.alpha = 255;
+        out.red = toU8FromStorage<T>(ptr[0]);
+        out.green = toU8FromStorage<T>(ptr[1]);
+        out.blue = toU8FromStorage<T>(ptr[2]);
+    } else {
+        out.red = toU8FromStorage<T>(ptr[0]);
+        out.green = toU8FromStorage<T>(ptr[1]);
+        out.blue = toU8FromStorage<T>(ptr[2]);
+        out.alpha = toU8FromStorage<T>(ptr[3]);
+    }
+    return out;
+}
+
+template <class T, int Components>
+void writeAePixel(OFX::Image& image, int x, int y, const PF_Pixel8& p)
+{
+    T* ptr = static_cast<T*>(image.getPixelAddress(x, y));
+    if (!ptr) {
+        return;
+    }
+
+    if constexpr (Components == 1) {
+        ptr[0] = fromU8ToStorage<T>(p.alpha);
+    } else if constexpr (Components == 3) {
+        ptr[0] = fromU8ToStorage<T>(p.red);
+        ptr[1] = fromU8ToStorage<T>(p.green);
+        ptr[2] = fromU8ToStorage<T>(p.blue);
+    } else {
+        ptr[0] = fromU8ToStorage<T>(p.red);
+        ptr[1] = fromU8ToStorage<T>(p.green);
+        ptr[2] = fromU8ToStorage<T>(p.blue);
+        ptr[3] = fromU8ToStorage<T>(p.alpha);
     }
 }
 
@@ -218,21 +281,21 @@ private:
     template <class T, int Components>
     void processTyped(OFX::Image& src, OFX::Image& dst, const OfxRectI& renderWindow, int width, int height, double time)
     {
-        std::vector<mlaa::Pixel> srcPixels(static_cast<std::size_t>(width) * height);
-        std::vector<mlaa::Pixel> dstPixels(static_cast<std::size_t>(width) * height);
+        std::vector<PF_Pixel8> srcPixels(static_cast<std::size_t>(width) * height);
+        std::vector<PF_Pixel8> dstPixels(static_cast<std::size_t>(width) * height);
 
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
                 srcPixels[static_cast<std::size_t>(y) * width + x] =
-                    readPixel<T, Components>(src, renderWindow.x1 + x, renderWindow.y1 + y);
+                    readAePixel<T, Components>(src, renderWindow.x1 + x, renderWindow.y1 + y);
             }
         }
 
-        loilosmooth::process(srcPixels.data(), dstPixels.data(), width, height, settingsAt(time));
+        loilosmooth::process8(srcPixels.data(), dstPixels.data(), width, height, settingsAt(time));
 
         for (int y = 0; y < height; ++y) {
             for (int x = 0; x < width; ++x) {
-                writePixel<T, Components>(dst, renderWindow.x1 + x, renderWindow.y1 + y,
+                writeAePixel<T, Components>(dst, renderWindow.x1 + x, renderWindow.y1 + y,
                     dstPixels[static_cast<std::size_t>(y) * width + x]);
             }
         }
