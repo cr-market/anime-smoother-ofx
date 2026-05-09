@@ -1,5 +1,105 @@
 # Anime Smoother OFX
 
+[日本語](#日本語) / [English](#english)
+
+## 日本語
+
+`Anime Smoother OFX` は、アニメ、線画、セル調画像などに出やすいジャギーを軽減するためのCPU版 OpenFX プラグインです。透明エッジ、線画、色の境界を対象に、画像のフラットな塗りをできるだけ保ったまま境界を滑らかにします。
+
+無料で利用でき、ライセンスは Apache License 2.0 です。
+
+このプラグインは、LoiLo Inc. がApache-2.0で公開している After Effects 用プラグイン [`loilo-inc/smooth`](https://github.com/loilo-inc/smooth) の処理を参考にし、OpenFX向けに移植したものです。オープンソースとして公開してくださったLoiLo Inc.に感謝します。OpenFX移植と調整は OpenAI Codex を使って行いました。
+
+### ダウンロード
+
+GitHub Releases から以下のZIPをダウンロードしてください。
+
+- `AnimeSmoother-0.9.10-macOS.zip`
+- `AnimeSmoother-0.9.10-Windows.zip`
+
+### インストール
+
+macOS:
+
+1. ZIPを展開します。
+2. `AnimeSmoother` フォルダを以下へコピーします。
+
+```text
+/Library/OFX/Plugins/
+```
+
+最終的に以下の形になればOKです。
+
+```text
+/Library/OFX/Plugins/AnimeSmoother/AnimeSmoother.ofx.bundle
+```
+
+Windows:
+
+1. ZIPを展開します。
+2. `AnimeSmoother.ofx.bundle` を以下へコピーします。
+
+```text
+C:\Program Files\Common Files\OFX\Plugins\
+```
+
+最終的に以下の形になればOKです。
+
+```text
+C:\Program Files\Common Files\OFX\Plugins\AnimeSmoother.ofx.bundle
+```
+
+コピー後、AutographまたはDaVinci Resolveを再起動してください。エフェクトは以下に表示されます。
+
+```text
+Filter / Anime / Anime Smoother
+```
+
+### 確認済みホスト
+
+- Left Angle Autograph で主にテストしています。
+- DaVinci Resolve / Fusion でも使用できた報告がありますが、ホスト側のOFXキャッシュや表示場所によって見え方が変わる場合があります。
+
+### 使い方
+
+1. アニメ、線画、セル調画像などの素材に `Anime Smoother` を適用します。
+2. まずは `Smoothing Mode` を `Standard` のまま試してください。
+3. 効果が弱い場合は `Smoothness` を上げます。
+4. 色が近い境界をより拾いたい場合は `Smooth Range` を少し上げます。
+5. さらに滑らかにしたい場合は `Smoothing Mode` を `Smooth` または `Extra Smooth` にします。
+
+最近傍法で大きく拡大した後の画像では、元の階段パターンが変わってしまい、スムージング対象として検出しづらい場合があります。できれば拡大前、または適切な解像度の素材に適用してください。
+
+### パラメータ
+
+| 表示名 | 説明 |
+| --- | --- |
+| `Enabled` | エフェクトのオン／オフです。 |
+| `Smoothness` | スムージングの強さです。高くすると効果が強くなります。 |
+| `Smooth Range` | 色差をどこまで同じ境界として扱うかの範囲です。近い色の境界に効かせたい場合に上げます。 |
+| `Alpha Aware` | アルファ境界を考慮します。通常はオンのままで使います。 |
+| `Process Premultiplied` | Premultiplied Alpha素材向けの処理です。通常はオフで、必要な場合だけオンにします。 |
+| `Smoothing Mode` | `Standard`、`Smooth`、`Extra Smooth` から選べます。`Extra Smooth` は2回処理するため、細部が少し柔らかくなる場合があります。 |
+
+### 0.9.10 高速化アップデート
+
+v0.9.10ではC++のみで高速化しました。Rustは使用していません。
+
+- Releaseビルドを標準化
+- `-O3` とリンク時最適化を有効化
+- OFXラッパー内の不要な中間変換を削減
+- ピクセル比較の前に4バイト単位の高速な同一判定を追加
+
+開発中の4K 600フレームテストでは、macOS版で v0.9.9 の約2分43秒から v0.9.10 の約1分7秒まで短縮しました。
+
+### ライセンス
+
+Anime Smoother OFX は Apache License 2.0 で公開しています。詳細は [LICENSE](LICENSE) と [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を確認してください。
+
+---
+
+## English
+
 `Anime Smoother OFX` is a CPU OpenFX image effect plugin for smoothing aliased anime/cel-style artwork, transparent edges, line art, and color boundaries.
 
 It is free to use and released under the Apache License 2.0.
